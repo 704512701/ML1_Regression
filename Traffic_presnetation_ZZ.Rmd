@@ -1,0 +1,151 @@
+---
+title: "Traffic"
+author: "Zhe Zhao(433707)"
+date: "2022/5/24"
+output: html_document
+---
+
+## Introduction
+The main target of this project is using regression methods of machine learning to build a model predicting the traffic on one of the highways for one-hourly intervals based on the training sample and generate predictions for all observations from the test sample.
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(lattice)
+library(corrplot)
+```
+
+## Import data
+Import data and check detailed information.
+```{r}
+## read data
+traffic <- read.csv("C:/Users/zhaoz/Desktop/jiqixuexi/pro/traffic_train.csv")
+```
+
+"Traffic" is the dependent variable, so we need to remove the value equal to 0 to get the MAPE value, firstly we check if there are "0"s.
+There are "0" values, so We have to remove these rows with "traffic" equal to 0.
+```{r}
+## 0s transform into NA
+traffic$traffic[which(traffic$traffic=="0")] <- NA
+## omit NA value
+traffic <- na.omit(traffic)
+```
+
+```{r}
+## 0s transform into NA
+traffic$temperature[which(traffic$temperature=="-273.1")] <- NA
+
+## omit NA value
+traffic <- na.omit(traffic)
+```
+
+Set training sample as 70% and testing sample as 30%.
+```{r}
+## set training sample and test sample 
+
+set.seed(20030329) #set Random seed
+traffic_which_training <- createDataPartition(traffic$traffic,
+                          p = 0.7, list = FALSE)  #set 70% of data as training data
+    
+traffic_train <-traffic[c(traffic_which_training),] #training data
+traffic_test <-traffic[-c(traffic_which_training),] #test data
+
+## save data
+save(list = c("traffic_train",
+              "traffic_test"),
+     file = "C:/Users/zhaoz/Desktop/jiqixuexi/pro/traffic_train_test.RData")
+
+```
+
+I chose only 3 variables: "traffic", "date_time" and "temperature".
+```{r}
+traffic_train_pro <- traffic_train[,c("traffic", "date_time", "temperature")]
+
+traffic_train_pro$date_time <- as.factor(traffic_train_pro$date_time)
+```
+
+## Linear regression model
+Why linear regression?
+1. This modeling speed is fast, and it does not require very complicated calculations. It still runs very fast in the case of a large amount of data, especially there are almost 30,000 pieces of data.
+2. It could give us an explanation for each variable in terms of coefficients.
+
+Why not KNN(K-Nearest Neighbor) or SVR(support vector regression)?
+The computational complexity are high, the amount of computation are too large, so they took really long time.
+However, the MAPE value of LR and SVR(linear kernel) are really similar,  LNN has Worse MAPE. 
+
+All in all, speed of LR is fast and lower MAPE.
+```{r}
+## Linear regression model 
+traffic_lm1 <- lm(traffic ~ date_time + temperature, # formula
+                 data = traffic_train_pro)
+## output
+summary(traffic_lm1)
+```
+Residuals
+```{r}
+
+head(traffic_lm1$residuals)
+
+hist(traffic_lm1$residuals, breaks = 30)
+
+# MSE is basically the average square residual
+
+mean(traffic_lm1$residuals^2)
+
+# MAE is the average absolute residual
+
+mean(abs(traffic_lm1$residuals))
+
+# similarly we can calculate Median Absolute Error
+
+median(abs(traffic_lm1$residuals))
+```
+Write a simple function to summarize MSE, RMSE, MAE, MAPE, MedAE, MSLE and R2.
+```{r}
+# Write a simple function to summarize all the errors and R2
+
+regressionMetrics <- function(real, predicted) {
+  # Mean Square Error
+  MSE <- mean((real - predicted)^2)
+  # Root Mean Square Error
+  RMSE <- sqrt(MSE)
+  # Mean Absolute Error
+  MAE <- mean(abs(real - predicted))
+  
+  # Mean Absolute Percentage Error!!
+  MAPE <- mean(abs(real - predicted)/real)
+  
+  # Median Absolute Error
+  MedAE <- median(abs(real - predicted))
+  # Mean Logarithmic Absolute Error
+  MSLE <- mean((log(1 + real) - log(1 + predicted))^2)
+  # R2
+  R2 <- cor(predicted, real)^2
+
+  result <- data.frame(MSE, RMSE, MAE, MAPE, MedAE, MSLE, R2)
+  return(result)
+}
+
+# apply it to LR model
+regressionMetrics(real = traffic_train_pro$traffic,
+                  predicted = predict(traffic_lm1))
+```
+
+R^2 = 0.7701107 and MAPE = 1.164449, seems okay, so lets check how it's performance in testing sample.
+Testing sample is names "traffic_test", separated from "traffic_train".
+```{r}
+## Linear regression model for testing data
+traffic_test$date_time <- as.factor(traffic_test$date_time)
+traffic_test$predicted <- traffic_lm1 %>% predict(traffic_test)
+
+## output
+print(mean(abs(traffic_test$traffic - traffic_test$predicted)/traffic_test$traffic))
+print(bquote(R^2==.(R2(traffic_test$predicted,traffic_test$traffic))))
+```
+We can check the MAPE value, it is even lower.
+We can also see the value of R^2 = 0.767948620226271, still high!
+
+
+## Conslusion
+I built SVR and KNN model also, but the results are similar or worse, so i just chose Linear Regression model. The value of R square and MAPE Linear Regression model are not very good, but they are still better than the other models I used. 

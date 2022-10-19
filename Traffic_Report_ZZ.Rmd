@@ -1,0 +1,355 @@
+---
+title: "Traffic"
+author: "Zhe Zhao(433707)"
+date: "2022/5/24"
+output:
+  word_document: default
+  html_document: default
+---
+## Introduction
+The main target of this project is using regression methods of machine learning to build a model predicting the traffic on one of the highways for one-hourly intervals based on the training sample and generate predictions for all observations from the test sample.
+
+```{r}
+## import 
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(lattice)
+library(corrplot)
+```
+
+
+## Import data
+Import data and check detailed information.
+```{r}
+## read data
+traffic <- read.csv("C:/Users/zhaoz/Desktop/jiqixuexi/pro/traffic_train.csv")
+
+## check detailed information
+head(traffic)
+str(traffic)
+```
+
+## Data Cleaning
+"Traffic" is the dependent variable, so we need to remove the value equal to 0 to get the MAPE value, firstly we check if there are "0"s.
+```{r}
+## check if there is any "0"s in "traffic" 
+any(traffic$traffic=="0")
+```
+Yes, there are "0" values, so We have to remove these rows with "traffic" equal to 0.
+```{r}
+## 0s transform into NA
+traffic$traffic[which(traffic$traffic=="0")] <- NA
+
+## omit NA value
+traffic <- na.omit(traffic)
+
+##check again
+any(is.na(traffic))
+
+```
+Now there is no rows with "traffic" equal to 0.
+
+Check outliers of variable temperature.
+```{r}
+## Find out if there are outliers
+boxplot(traffic$temperature)
+```
+
+I also find there are some with temperature at absolute zero, we need to remove outliers.
+
+We have to remove these rows with "temperature" equal to -273.1.
+```{r}
+## 0s transform into NA
+traffic$temperature[which(traffic$temperature=="-273.1")] <- NA
+
+## omit NA value
+traffic <- na.omit(traffic)
+
+##check again
+any(is.na(traffic))
+```
+Now there are no outliers in variable temperature.
+
+Lests set training sample as 70% and test sample as 30%.
+```{r}
+## set training sample and test sample 
+
+set.seed(20030329) #set Random seed
+traffic_which_training <- createDataPartition(traffic$traffic,
+                          p = 0.7, list = FALSE)  #set 70% of data as training data
+    
+traffic_train <-traffic[c(traffic_which_training),] #training data
+traffic_test <-traffic[-c(traffic_which_training),] #test data
+
+## save data
+save(list = c("traffic_train",
+              "traffic_test"),
+     file = "C:/Users/zhaoz/Desktop/jiqixuexi/pro/traffic_train_test.RData")
+
+```
+Check again if there are any NA values in training sample.
+```{r}
+## check if there are any NA values in training sample 
+any(is.na(traffic_train))
+```
+No Na value in training sample.
+
+
+Have a look at basic statistics of training sample and testing sample, We prefer that the results are similar.
+```{r}
+
+summary(traffic_train$traffic)
+summary(traffic_test$traffic)
+```
+All these statistics are similar, training sample and testing sample could be acceptable.
+
+
+
+## Data Exploration
+In our experience, traffic is affected by time and we can visualize the result visually.
+```{r}
+plot(traffic_train$date_time,traffic_train$traffic )
+```
+
+We can see high traffic volume during the day and low traffic volume at night. 
+p.s. date_time(hour)
+
+
+Check outliers of variable rain_mm, .
+```{r}
+## Find out if there are outliers
+boxplot(traffic_train$rain_mm)
+```
+
+Check outliers of variable snow_mm.
+```{r}
+# Find out if there are outliers
+boxplot(traffic_train$snow_mm)
+```
+
+## Data Transform
+Check the distribution of the dependent variable "traffic".
+```{r}
+# check the distribution (log transformation) of the dependent variable "traffic"
+ggplot(traffic_train,
+       aes(x = traffic)) +
+  geom_histogram(fill = "blue",
+                 bins = 100) +
+  theme_bw()
+
+```
+
+Find character variables.
+```{r}
+## check character variables
+traffic_train_character_vars <- 
+  sapply(traffic_train, is.character) %>% 
+  which() %>% 
+  names()
+
+## result
+traffic_train_character_vars
+```
+
+There are two character variables, sort them.
+```{r}
+## sort 2 character variables
+sapply(traffic_train[, traffic_train_character_vars], 
+        function(x) 
+          unique(x) %>% 
+          length()) %>% 
+  sort()
+
+```
+Transfer character variables to factor, find the levels of them.
+```{r}
+## transfer character variables to factor
+traffic_train$weather_general <- factor(traffic_train$weather_general)
+traffic_train$weather_detailed <- factor(traffic_train$weather_detailed)
+
+## check levels of weather general and weather detailed
+levels(traffic_train$weather_general)
+levels(traffic_train$weather_detailed)
+```
+
+```{r}
+## detailed information
+table(traffic_train$weather_general)
+plot(traffic_train$weather_general)
+table(traffic_train$weather_detailed)
+plot(traffic_train$weather_detailed)
+
+## transfer int variables to num
+traffic_train$date_time <- as.numeric(traffic_train$date_time)
+traffic_train$clouds_coverage_pct <- as.numeric(traffic_train$clouds_coverage_pct)
+```
+
+
+Label variables weather_general and weather_detailed.
+```{r}
+## label weather_general
+traffic_train$weather_general<-factor(traffic_train$weather_general,
+                                           level=c("Clear","Clouds","Squall","Smoke","Fog","Thunderstorm","Haze",         
+                                             "Drizzle","Snow", "Mist", "Rain"),
+                                            labels = c(1:11))
+```
+
+```{r}
+##  label weather_detailed
+traffic_train$weather_detailed<-factor(traffic_train$weather_detailed,
+                                                         level=c("broken clouds",  "drizzle",  "few clouds",
+                                                                 "Mist",  "Rain","fog" ,"freezing rain", "haze" , "heavy                   intensity drizzle",   "heavy intensity rain", 
+                "heavy snow" ,  "light intensity drizzle"            
+              , "light intensity shower rain" ,        "light rain"                         
+              , "light rain and snow",                 "light shower snow"                  
+              ,"light snow"                                                      
+              , "moderate rain",                       "overcast clouds"                    
+              , "proximity shower rain" ,              "proximity thunderstorm"             
+              , "proximity thunderstorm with drizzle", "proximity thunderstorm with rain"   
+              , "scattered clouds",                    "shower drizzle"                     
+              , "sky is clear" ,                       "smoke"                              
+              , "snow" ,                             "squalls"                            
+              , "thunderstorm"  ,                      "thunderstorm with drizzle"          
+              , "thunderstorm with heavy rain"  ,      "thunderstorm with light drizzle"    
+              , "thunderstorm with light rain" ,       "thunderstorm with rain"             
+              , "very heavy rain"  ),
+                                            labels = c(1:36))
+```
+
+```{r}
+str(traffic_train)
+```
+
+Transfer variable weather_general and  weather_detailed into numeric variables, it will be easy to do correlation test.
+```{r}
+traffic_train$weather_detailed <- as.numeric(traffic_train$weather_detailed)
+traffic_train$weather_general <- as.numeric(traffic_train$weather_detailed)
+
+str(traffic_train)
+```
+
+
+Find numeric variables for correlation test.
+```{r}
+## find numeric variables
+traffic_numeric_vars <- 
+  # check if variable is numeric
+  sapply(traffic_train, is.numeric) %>% 
+  # select those which are
+  which() %>% 
+  # and keep just their names
+  names()
+## result
+traffic_numeric_vars
+```
+Check correlations between variables, and draw correlation plot.
+```{r}
+# mutually correlated (irrelevant) variables
+# calculate correlations between variables to identify redundant features
+
+traffic_train_correlations <- 
+  cor(traffic_train[, traffic_numeric_vars],
+      use = "pairwise.complete.obs")
+traffic_train_correlations
+
+## result
+corrplot(traffic_train_correlations)
+```
+
+
+```{r}
+## correlation plot
+corrplot.mixed(traffic_train_correlations,
+               upper = "square",
+               lower = "number",
+               tl.col = "black", # color of labels (variable names)
+               tl.pos = "lt")  # position of labels (lt = left and top)
+
+```
+
+
+Chose only variables "date_time", "traffic" and "temperature"
+
+Creat new training sample with variables "date_time", "traffic" and "temperature" for next steps.
+```{r}
+traffic_train_pro <- traffic_train[,c("traffic", "date_time", "temperature")]
+
+traffic_train_pro$date_time <- as.factor(traffic_train_pro$date_time)
+```
+
+
+
+## Linear regression model
+```{r}
+## Linear regression model 
+traffic_lm1 <- lm(traffic ~ date_time + temperature, # formula
+                 data = traffic_train_pro)
+## output
+summary(traffic_lm1)
+```
+Residuals
+```{r}
+
+head(traffic_lm1$residuals)
+
+hist(traffic_lm1$residuals, breaks = 30)
+
+# MSE is basically the average square residual
+
+mean(traffic_lm1$residuals^2)
+
+# MAE is the average absolute residual
+
+mean(abs(traffic_lm1$residuals))
+
+# similarly we can calculate Median Absolute Error
+
+median(abs(traffic_lm1$residuals))
+```
+
+Write a simple function to summarize MSE, RMSE, MAE, MAPE, MedAE, MSLE and R2.
+```{r}
+# Write a simple function to summarize all the errors and R2
+
+regressionMetrics <- function(real, predicted) {
+  # Mean Square Error
+  MSE <- mean((real - predicted)^2)
+  # Root Mean Square Error
+  RMSE <- sqrt(MSE)
+  # Mean Absolute Error
+  MAE <- mean(abs(real - predicted))
+  # Mean Absolute Percentage Error
+  MAPE <- mean(abs(real - predicted)/real)
+  # Median Absolute Error
+  MedAE <- median(abs(real - predicted))
+  # Mean Logarithmic Absolute Error
+  MSLE <- mean((log(1 + real) - log(1 + predicted))^2)
+  # R2
+  R2 <- cor(predicted, real)^2
+
+  result <- data.frame(MSE, RMSE, MAE, MAPE, MedAE, MSLE, R2)
+  return(result)
+}
+
+# lets apply it to our model
+regressionMetrics(real = traffic_train_pro$traffic,
+                  predicted = predict(traffic_lm1))
+```
+
+R^2 = 0.7701107 and MAPE = 1.164449, seems okay, so lets check how it's performance in testing sample.
+Testing sample is names "traffic_test", separated from "traffic_train".
+```{r}
+## Linear regression model for testing data
+traffic_test$date_time <- as.factor(traffic_test$date_time)
+traffic_test$predicted <- traffic_lm1 %>% predict(traffic_test)
+
+## output
+print(bquote(R^2==.(R2(traffic_test$predicted,traffic_test$traffic))))
+```
+We can check the MAPE value, it is even lower.
+We can also have a look at the value of R^2 = 0.767948620226271, still high!
+
+
+## Conslusion
+I built SVR and KNN model also, but the results are similar or worse, so i just chose Linear Regression model. The value of R square and MAPE Linear Regression model are not very good, but they are still better than the other models I used. 
